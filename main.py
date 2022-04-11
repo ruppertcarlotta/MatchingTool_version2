@@ -332,15 +332,29 @@ def reports_to_csv(report_file, results_path, unambiguous=False):
         # Datum;Name;Vorname;Geburtsdatum;Patienten Fremd ID;
 
         # loop over reports and fill dict with info
-        extracted_dict = {'patient_id': [], 'study_date': [], 'birth_date': [], 'birads': [], 'ACR': [] }
+        extracted_dict = {'patient_id': [], 'study_date': [], 'birth_date': [], 'birads': [], 'density': [] }
         doubles = 0
         for i, report in enumerate(reports):
 
             # first report is differently structured
             if i == 0:
+
+
                 search_str_beg = 'Patienten Fremd ID;'
                 index = [l for l in range(len(report)) if data.startswith(search_str_beg, l)]
                 start = index[0] + 19
+                search_str_info = 'Datum;'
+                info_start = [l for l in range(len(report)) if data.startswith(search_str_info, l)]
+                info_structure = report[info_start[0]:start]
+                info_header = info_structure.split(';')
+                info_header = info_header[:-1]
+                print(info_header)
+                index_datum = info_header.index('Datum')
+                index_name = info_header.index('Name')
+                index_vorname = info_header.index('Vorname')
+                index_geburtsdatum = info_header.index('Geburtsdatum')
+                index_kis = info_header.index('Patienten Fremd ID')
+
                 report = report[start:]
 
             res = [k for k in range(len(report)) if report.startswith(';', k)]
@@ -352,9 +366,9 @@ def reports_to_csv(report_file, results_path, unambiguous=False):
                 continue
 
             # extract matching information
-            study_date = info[0]
-            birth_date = info[4]
-            patient_id = info[5]
+            study_date = info[index_datum]
+            birth_date = info[index_geburtsdatum]
+            patient_id = info[index_kis]
 
             # extract BIRADS information from remaining string
             remaining = report[res[5]:]
@@ -404,7 +418,7 @@ def reports_to_csv(report_file, results_path, unambiguous=False):
                     continue
                 birads_classes.append(birads_class)
 
-            acr_index = [k for k in range(len(remaining)) if remaining.startswith('ACR', k)]
+            acr_index = [k for k in range(len(remaining)) if remaining.startswith('density', k)]
 
             # there may be multiple BIRADS in remaining string
             acr_classes = []
@@ -463,7 +477,7 @@ def reports_to_csv(report_file, results_path, unambiguous=False):
                     extracted_dict['study_date'].append(study_date)
                     extracted_dict['birth_date'].append(birth_date)
                     extracted_dict['birads'].append(birads_classes[0])
-                    extracted_dict['ACR'].append(acr_class_final)
+                    extracted_dict['density'].append(acr_class_final)
 
                 # if ambiguious is True:
                 # check whether there are more than 2 different classes in one single report.
@@ -477,13 +491,20 @@ def reports_to_csv(report_file, results_path, unambiguous=False):
                             continue
 
                         else:
+                            print(birads_classes)
                             doubles += 1
-                            for b_class in birads_classes:
-                                extracted_dict['patient_id'].append(patient_id)
-                                extracted_dict['study_date'].append(study_date)
-                                extracted_dict['birth_date'].append(birth_date)
-                                extracted_dict['birads'].append(b_class)
-                                extracted_dict['ACR'].append(acr_class_final)
+                            extracted_dict['patient_id'].append(patient_id)
+                            extracted_dict['study_date'].append(study_date)
+                            extracted_dict['birth_date'].append(birth_date)
+                            extracted_dict['birads'].append(next(iter(birads_classes)))
+                            extracted_dict['density'].append(acr_class_final)
+
+                            # for b_class in birads_classes:
+                            #     extracted_dict['patient_id'].append(patient_id)
+                            #     extracted_dict['study_date'].append(study_date)
+                            #     extracted_dict['birth_date'].append(birth_date)
+                            #     extracted_dict['birads'].append(b_class)
+                            #     extracted_dict['density'].append(acr_class_final)
 
                     else:
                         continue
@@ -498,15 +519,15 @@ def reports_to_csv(report_file, results_path, unambiguous=False):
                 extracted_dict['study_date'].append(study_date)
                 extracted_dict['birth_date'].append(birth_date)
                 extracted_dict['birads'].append(birads_classes[0])
-                extracted_dict['ACR'].append(acr_class_final)
+                extracted_dict['density'].append(acr_class_final)
 
         if not unambiguous:
             print("# of reports with multiple BIRADS classes:", doubles)
 
-        final_dict = {'KIS': [], 'day': [], 'month': [], 'year': [], 'birth_day': [], 'birth_month': [], 'birth_year': [],'BIRADS': [], 'ACR': []}
+        final_dict = {'KIS': [], 'day': [], 'month': [], 'year': [], 'birth_day': [], 'birth_month': [], 'birth_year': [],'BIRADS': [], 'density': []}
         final_dict['KIS'] = [int(x) for x in extracted_dict['patient_id']]
         final_dict['BIRADS'] = [int(x) for x in extracted_dict['birads']]
-        final_dict['ACR'] = extracted_dict['ACR']
+        final_dict['density'] = extracted_dict['density']
 
         for date in extracted_dict['study_date']:
             date = date.split('.')
@@ -590,7 +611,7 @@ def matching(dicom_path, result_path, copy=True):
     nb_matches = 0
     nb_session = 0
 
-    matching_dict = {'file': [], 'birads': [], 'acr': [], 'birth_year': [], 'report_file': [], 'session_nb': [],}
+    matching_dict = {'file': [], 'birads': [], 'density': [], 'birth_year': [], 'report_file': [], 'session_nb': []}
 
     current_id = None
     previous_id = None
@@ -598,6 +619,9 @@ def matching(dicom_path, result_path, copy=True):
     for subdir, dirs, files in os.walk(dicom_path):
         for file in files:
 
+            print(subdir)
+            print(dirs)
+            ds = pydicom.dcmread(os.path.join(dicom_path,file))
             info = file.split('-')
 
             # befunde.txt file
@@ -619,7 +643,7 @@ def matching(dicom_path, result_path, copy=True):
             current_id = KIS
 
             for i, (patient_id, day, month, year, birads, acr, birth_year) in enumerate(zip(df['KIS'], df['day'],
-                                                                           df['month'], df['year'], df['BIRADS'], df['ACR'], df['birth_year'])):
+                                                                           df['month'], df['year'], df['BIRADS'], df['density'], df['birth_year'])):
                 # if birads == 0:
                 #     continue
 
@@ -631,7 +655,7 @@ def matching(dicom_path, result_path, copy=True):
                     matching_dict['file'].append(str(nb_matches) + '.dcm')
                     matching_dict['report_file'].append(str(nb_matches) + '.txt')
                     matching_dict['birads'].append(birads)
-                    matching_dict['acr'].append(acr)
+                    matching_dict['density'].append(acr)
                     matching_dict['birth_year'].append(birth_year)
 
                     if previous_id:
@@ -645,7 +669,13 @@ def matching(dicom_path, result_path, copy=True):
 
                     if copy:
                         print(f"Anonymizing file # {nb_matches}")
-                        copy_dicom_file(file, subdir, nb_matches - 1, result_path)
+
+                        try:
+                            SOPUID = str(ds[0x0008, 0x0018].value)
+                            copy_dicom_file(file, subdir, SOPUID, result_path)
+                        except KeyError:
+                            print('No SOPInstanceUID given')
+
 
     print(f'\nNumber of matched images: {nb_matches}')
     print(f'Number of entries in the report database: {len(df)}')
@@ -680,7 +710,7 @@ class MyWidget(QtWidgets.QWidget):
         self.report_path = None
         self.results_path = None
 
-        self.setWindowTitle("Ultrasound Images")
+        self.setWindowTitle("Match Dicom Files with Reports")
         self.init_gui()
 
     def init_gui(self):
